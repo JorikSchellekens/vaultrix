@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { UnlockScreen } from "./UnlockScreen";
 import { EntryList } from "./EntryList";
 import { EntryDetail } from "./EntryDetail";
@@ -9,12 +9,37 @@ import {
   applyOp,
   buildVaultOpContent,
   sendVaultOpEvent,
+  createWebPlatform,
+  loadSession,
+  clearSession,
+  saveSession,
+  createMatrixClient,
+  ensureEncryption,
+  startSync,
 } from "@vaultrix/core";
 import type { VaultModel, VaultEntry, MatrixClient, VaultMeta } from "@vaultrix/core";
+import type { StoredSession } from "@vaultrix/core";
 
-type View = "list" | "entry" | "create" | "edit" | "settings";
+type View = "entry" | "create" | "edit" | "settings";
+
+const MATRIX_STORE_DB_NAME = "vaultrix-matrix";
+
+function waitForPrepared(client: MatrixClient, timeoutMs = 10000): Promise<void> {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(), Math.min(timeoutMs, 5000));
+    const onSync = (state: string) => {
+      if (state === "PREPARED") {
+        clearTimeout(t);
+        client.removeListener("sync" as never, onSync as never);
+        resolve();
+      }
+    };
+    client.on("sync" as never, onSync as never);
+  });
+}
 
 export default function App() {
+  const platform = createWebPlatform();
   const [unlocked, setUnlocked] = useState<{
     model: VaultModel;
     K_vault: Uint8Array;
@@ -22,9 +47,55 @@ export default function App() {
     meta: VaultMeta;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<View>("list");
+  const [view, setView] = useState<View>("entry");
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  /** Restored Matrix client and session (user still needs to unlock with recovery key). */
+  const [restoredClient, setRestoredClient] = useState<{
+    client: MatrixClient;
+    userId: string;
+    session: StoredSession;
+  } | null>(null);
+  const [restoring, setRestoring] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const session = await loadSession(platform.storage);
+      if (!session || typeof globalThis.indexedDB === "undefined") {
+        setRestoring(false);
+        return;
+      }
+      try {
+        const { IndexedDBStore } = await import("matrix-js-sdk");
+        const store = new IndexedDBStore({
+          indexedDB: globalThis.indexedDB,
+          dbName: MATRIX_STORE_DB_NAME,
+          localStorage: globalThis.localStorage,
+        });
+        const client = createMatrixClient({
+          baseUrl: session.baseUrl,
+          userId: session.userId,
+          deviceId: session.deviceId,
+          accessToken: session.accessToken,
+          store,
+        });
+        await store.startup();
+        await ensureEncryption(client);
+        startSync(client);
+        await waitForPrepared(client);
+        if (cancelled) return;
+        setRestoredClient({ client, userId: session.userId, session });
+      } catch {
+        await clearSession(platform.storage);
+      } finally {
+        if (!cancelled) setRestoring(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [platform.storage]);
 
   const handleUnlock = (
     model: VaultModel,
@@ -32,17 +103,23 @@ export default function App() {
     client: MatrixClient,
     meta: VaultMeta
   ) => {
+    setRestoredClient(null);
     setUnlocked({ model, K_vault, client, meta });
     setError(null);
-    setView("list");
+    setView("entry");
     setSelectedEntryId(null);
   };
 
   const handleLock = () => {
     setUnlocked(null);
-    setView("list");
+    setRestoredClient(null);
+    setView("entry");
     setSelectedEntryId(null);
   };
+
+  const handleSessionReady = useCallback((session: StoredSession) => {
+    saveSession(platform.storage, session).catch(() => {});
+  }, [platform.storage]);
 
   const refreshModel = useCallback(() => {
     setUnlocked((prev) => {
@@ -89,7 +166,7 @@ export default function App() {
     async (entry: VaultEntry) => {
       const isNew = !unlocked?.model.entries.has(entry.id);
       await sendOp(isNew ? "create" : "update", entry.id, entry);
-      setView("list");
+      setView("entry");
       setSelectedEntryId(entry.id);
     },
     [unlocked, sendOp]
@@ -98,7 +175,7 @@ export default function App() {
   const handleDeleteEntry = useCallback(
     async (entry: VaultEntry) => {
       await sendOp("delete", entry.id, null);
-      setView("list");
+      setView("entry");
       setSelectedEntryId(null);
     },
     [sendOp]
@@ -114,8 +191,25 @@ export default function App() {
       <div className="app app-unlocked">
         <div className="app-container">
           <h1 className="app-title">Vaultrix</h1>
+          {restoring && (
+            <p style={{ color: "#666", marginBottom: 12 }}>Restoring session…</p>
+          )}
           {error && <p className="app-error">{error}</p>}
-          <UnlockScreen onUnlock={handleUnlock} onError={setError} />
+          {!restoring && (
+            <UnlockScreen
+              onUnlock={handleUnlock}
+              onError={setError}
+              onSessionReady={handleSessionReady}
+              restoredClient={restoredClient?.client}
+              restoredUserId={restoredClient?.userId}
+              restoredSession={restoredClient?.session}
+              matrixStoreDbName={MATRIX_STORE_DB_NAME}
+              onClearSession={async () => {
+                await clearSession(platform.storage);
+                setRestoredClient(null);
+              }}
+            />
+          )}
         </div>
       </div>
     );
@@ -131,15 +225,8 @@ export default function App() {
         <nav className="app-nav">
           <button
             type="button"
-            className={view === "list" ? "active" : ""}
-            onClick={() => setView("list")}
-          >
-            Entries
-          </button>
-          <button
-            type="button"
             className={view === "settings" ? "active" : ""}
-            onClick={() => setView("settings")}
+            onClick={() => setView(view === "settings" ? "entry" : "settings")}
           >
             Vault
           </button>
@@ -150,8 +237,8 @@ export default function App() {
         {copyFeedback && <span className="app-copy-feedback">{copyFeedback}</span>}
       </header>
 
-      <main className="app-main">
-        {view === "list" && (
+      <main className="app-main app-main-master-detail">
+        <aside className="master-detail-master" aria-label="Entries list">
           <EntryList
             model={model}
             selectedEntryId={selectedEntryId}
@@ -164,42 +251,53 @@ export default function App() {
               setView("create");
             }}
           />
-        )}
+        </aside>
+        <div className="master-detail-detail" aria-label="Entry detail">
+          {view === "settings" && (
+            <VaultSettings
+              client={client}
+              meta={meta}
+              onBack={() => setView("entry")}
+            />
+          )}
 
-        {view === "entry" && selectedEntryId && (
-          <EntryDetail
-            model={model}
-            entryId={selectedEntryId}
-            onBack={() => setView("list")}
-            onEdit={(e) => {
-              setSelectedEntryId(e.id);
-              setView("edit");
-            }}
-            onSaveEntry={handleSaveEntry}
-            onDeleteEntry={handleDeleteEntry}
-            onCopy={handleCopy}
-          />
-        )}
+          {view === "entry" && selectedEntryId && (
+            <EntryDetail
+              model={model}
+              entryId={selectedEntryId}
+              onBack={() => setSelectedEntryId(null)}
+              onEdit={(e) => {
+                setSelectedEntryId(e.id);
+                setView("edit");
+              }}
+              onSaveEntry={handleSaveEntry}
+              onDeleteEntry={handleDeleteEntry}
+              onCopy={handleCopy}
+            />
+          )}
 
-        {view === "create" && (
-          <EntryForm
-            entry={null}
-            onSave={handleSaveEntry}
-            onCancel={() => setView("list")}
-          />
-        )}
+          {view === "create" && (
+            <EntryForm
+              entry={null}
+              onSave={handleSaveEntry}
+              onCancel={() => setView("entry")}
+            />
+          )}
 
-        {view === "edit" && selectedEntry && (
-          <EntryForm
-            entry={selectedEntry}
-            onSave={handleSaveEntry}
-            onCancel={() => setView("entry")}
-          />
-        )}
+          {view === "edit" && selectedEntry && (
+            <EntryForm
+              entry={selectedEntry}
+              onSave={handleSaveEntry}
+              onCancel={() => setView("entry")}
+            />
+          )}
 
-        {view === "settings" && (
-          <VaultSettings client={client} meta={meta} onBack={() => setView("list")} />
-        )}
+          {view === "entry" && !selectedEntryId && (
+            <div className="detail-empty" aria-live="polite">
+              <p>Select an entry from the list or add a new one.</p>
+            </div>
+          )}
+        </div>
       </main>
     </div>
   );

@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   createMatrixClient,
+  ensureEncryption,
   loginWithPassword,
   startSync,
   getVaultMeta,
@@ -16,9 +17,24 @@ import type { VaultMeta } from "@vaultrix/core";
 interface UnlockScreenProps {
   onUnlock: (model: VaultModel, K_vault: Uint8Array, client: MatrixClient, meta: VaultMeta) => void;
   onError: (msg: string) => void;
+  onSessionReady?: (session: { baseUrl: string; userId: string; deviceId: string; accessToken: string }) => void;
+  restoredClient?: MatrixClient | null;
+  restoredUserId?: string | null;
+  restoredSession?: { baseUrl: string; userId: string; deviceId: string; accessToken: string } | null;
+  matrixStoreDbName?: string;
+  onClearSession?: () => void;
 }
 
-export function UnlockScreen({ onUnlock, onError }: UnlockScreenProps) {
+export function UnlockScreen({
+  onUnlock,
+  onError,
+  onSessionReady,
+  restoredClient,
+  restoredUserId,
+  restoredSession,
+  matrixStoreDbName = "vaultrix-matrix",
+  onClearSession,
+}: UnlockScreenProps) {
   const [baseUrl, setBaseUrl] = useState("https://matrix.org");
   const [userId, setUserId] = useState("");
   const [password, setPassword] = useState("");
@@ -26,6 +42,13 @@ export function UnlockScreen({ onUnlock, onError }: UnlockScreenProps) {
   const [useRecoveryKey, setUseRecoveryKey] = useState<true | false | null>(null);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<"login" | "unlock">("login");
+
+  useEffect(() => {
+    if (restoredClient && restoredUserId) {
+      setUserId(restoredUserId);
+      setStep("unlock");
+    }
+  }, [restoredClient, restoredUserId]);
 
   const handleContinue = () => {
     onError("");
@@ -35,30 +58,57 @@ export function UnlockScreen({ onUnlock, onError }: UnlockScreenProps) {
   const handleUnlock = async () => {
     setLoading(true);
     onError("");
+    const secretStorageKeyProvider =
+      useRecoveryKey && recoveryKey.trim()
+        ? async (keyId: string): Promise<[string, Uint8Array] | null> => {
+            const key = recoveryKey.trim();
+            const bytes = new TextEncoder().encode(key);
+            const buf = new Uint8Array(32);
+            for (let i = 0; i < buf.length; i++) {
+              buf[i] = bytes[i % bytes.length];
+            }
+            return [keyId, buf] as [string, Uint8Array];
+          }
+        : undefined;
+
     try {
-      const client = createMatrixClient({
-        baseUrl,
-        // If user chose recovery key, provide a secretStorageKeyProvider.
-        // If they chose \"use another device\", let matrix-js-sdk obtain
-        // SSSS keys via device verification / key backup.
-        secretStorageKeyProvider:
-          useRecoveryKey && recoveryKey.trim()
-            ? async (keyId: string) => {
-                const key = recoveryKey.trim();
-                // NOTE: In a real app, decode the Matrix recovery key
-                // format properly. This stub derives a 32-byte key as a placeholder.
-                const bytes = new TextEncoder().encode(key);
-                const buf = new Uint8Array(32);
-                for (let i = 0; i < buf.length; i++) {
-                  buf[i] = bytes[i % bytes.length];
-                }
-                return [keyId, buf];
-              }
-            : undefined,
-      });
-      await loginWithPassword(client, { baseUrl, userId, password });
-      startSync(client);
-      await waitForSync(client);
+      let client: MatrixClient;
+
+      if (restoredClient && restoredSession && useRecoveryKey && secretStorageKeyProvider) {
+        const { stopSync } = await import("@vaultrix/core");
+        stopSync(restoredClient);
+        const { IndexedDBStore } = await import("matrix-js-sdk");
+        const store = new IndexedDBStore({
+          indexedDB: globalThis.indexedDB,
+          dbName: matrixStoreDbName,
+          localStorage: globalThis.localStorage,
+        });
+        client = createMatrixClient({
+          baseUrl: restoredSession.baseUrl,
+          userId: restoredSession.userId,
+          deviceId: restoredSession.deviceId,
+          accessToken: restoredSession.accessToken,
+          store,
+          secretStorageKeyProvider,
+        });
+        await store.startup();
+        await ensureEncryption(client);
+        startSync(client);
+        await waitForSync(client);
+      } else if (restoredClient && !secretStorageKeyProvider) {
+        client = restoredClient;
+      } else {
+        client = createMatrixClient({
+          baseUrl,
+          secretStorageKeyProvider,
+        });
+        const result = await loginWithPassword(client, { baseUrl, userId, password });
+        onSessionReady?.({ baseUrl, userId, deviceId: result.deviceId, accessToken: result.accessToken });
+        await ensureEncryption(client);
+        startSync(client);
+        await waitForSync(client);
+      }
+
       const meta = await getVaultMeta(client);
       let vaultRoomId = meta?.vault_room_id;
       if (!vaultRoomId) {
@@ -230,14 +280,29 @@ export function UnlockScreen({ onUnlock, onError }: UnlockScreenProps) {
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => setStep("login")}
-            style={{ marginTop: 8 }}
-            disabled={loading}
-          >
-            Back to login
-          </button>
+          {restoredClient ? (
+            <button
+              type="button"
+              onClick={() => {
+                onClearSession?.();
+                setStep("login");
+                setUserId("");
+              }}
+              style={{ marginTop: 8 }}
+              disabled={loading}
+            >
+              Log out
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setStep("login")}
+              style={{ marginTop: 8 }}
+              disabled={loading}
+            >
+              Back to login
+            </button>
+          )}
         </>
       )}
     </div>

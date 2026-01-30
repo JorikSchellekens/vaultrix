@@ -1,3 +1,4 @@
+import "./wasm-mime-polyfill";
 import "./base64-polyfill";
 import React from "react";
 import ReactDOM from "react-dom/client";

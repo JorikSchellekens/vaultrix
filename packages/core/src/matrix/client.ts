@@ -68,6 +68,8 @@ export function createMatrixClient(
 
 /**
  * Log in with password. Returns the same client with credentials set.
+ * Also sets client.deviceId from the login response (the SDK does not do this
+ * in login()), which is required for initRustCrypto / ensureEncryption.
  */
 export async function loginWithPassword(
   client: MatrixClient,
@@ -77,14 +79,27 @@ export async function loginWithPassword(
     credentials.userId,
     credentials.password
   );
+  const deviceId = result.device_id ?? client.getDeviceId() ?? "";
+  if (result.device_id) {
+    (client as MatrixClient & { deviceId: string | null }).deviceId = result.device_id;
+  }
   return {
     accessToken: result.access_token,
-    deviceId: result.device_id ?? client.getDeviceId() ?? "",
+    deviceId,
   };
 }
 
 /**
- * Start the client sync loop. Call once after login.
+ * Enable E2EE for the client (required for encrypted rooms). Call after login, before startSync.
+ * Uses the SDK's Rust crypto implementation so the client can join/send in encrypted rooms.
+ */
+export async function ensureEncryption(client: MatrixClient): Promise<void> {
+  if (client.getCrypto()) return;
+  await client.initRustCrypto();
+}
+
+/**
+ * Start the client sync loop. Call once after login (and after ensureEncryption for encrypted rooms).
  */
 export function startSync(client: MatrixClient): void {
   client.startClient();

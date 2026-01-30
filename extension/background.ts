@@ -2,10 +2,16 @@
  * Extension background (MV3 service worker). Owns Matrix client and vault core.
  * Message API: getStatus, unlock, lock, listEntries, getEntry, createOp, getRecoveryKeyForQR.
  */
+import "./wasm-mime-polyfill";
 import "./base64-polyfill";
+// Olm (matrix-js-sdk) fetches olm.wasm by URL; point it at the extension asset so we get WASM, not HTML.
+(globalThis as typeof globalThis & { OLM_OPTIONS?: { locateFile?: () => string } }).OLM_OPTIONS = {
+  locateFile: () => (typeof chrome !== "undefined" && chrome.runtime?.getURL ? chrome.runtime.getURL("olm.wasm") : "/olm.wasm"),
+};
 import {
   createMatrixClient,
   loginWithPassword,
+  ensureEncryption,
   startSync,
   getVaultMeta,
   setVaultMeta,
@@ -57,6 +63,7 @@ async function unlock(
         : undefined,
     });
     await loginWithPassword(matrixClient, { baseUrl, userId, password });
+    await ensureEncryption(matrixClient);
     startSync(matrixClient);
     await new Promise<void>((r) => setTimeout(r, 3000));
     let meta = await getVaultMeta(matrixClient);

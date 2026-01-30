@@ -8,11 +8,12 @@
     "build:core": "pnpm --filter @vaultrix/core run build",
     "build:ui": "pnpm --filter @vaultrix/ui run build",
     "build:extension": "pnpm run build:core && pnpm run build:ui && pnpm --filter @vaultrix/extension run build",
-    "dev:ui": "pnpm --filter @vaultrix/ui run dev",
+    "dev:ui": "pnpm run copy-olm-wasm && pnpm --filter @vaultrix/ui run dev",
     "dev:extension": "pnpm run build:extension",
     "ensure-tauri-icon": "node scripts/ensure-tauri-icon.cjs",
-    "dev:tauri": "pnpm run ensure-tauri-icon && pnpm run build:core && pnpm run build:ui && pnpm --filter @vaultrix/tauri run dev",
-    "build:tauri": "pnpm run ensure-tauri-icon && pnpm run build:core && pnpm run build:ui && pnpm --filter @vaultrix/tauri run build"
+    "copy-olm-wasm": "node scripts/copy-olm-wasm.cjs",
+    "dev:tauri": "pnpm run ensure-tauri-icon && pnpm run copy-olm-wasm && pnpm run build:core && pnpm run build:ui && pnpm --filter @vaultrix/tauri run dev",
+    "build:tauri": "pnpm run ensure-tauri-icon && pnpm run copy-olm-wasm && pnpm run build:core && pnpm run build:ui && pnpm --filter @vaultrix/tauri run build"
   },
   "engines": {
     "node": ">=18"

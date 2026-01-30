@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 import { copyFileSync, mkdirSync, readdirSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
+import wasm from "vite-plugin-wasm";
+import topLevelAwait from "vite-plugin-top-level-await";
 
 export default defineConfig({
   build: {
@@ -18,6 +20,8 @@ export default defineConfig({
     },
   },
   plugins: [
+    wasm(),
+    topLevelAwait(),
     {
       name: "copy-ui-and-manifest",
       closeBundle() {
@@ -41,6 +45,18 @@ export default defineConfig({
         for (const name of ["manifest.json", "popup.html"]) {
           const src = join(process.cwd(), name);
           if (existsSync(src)) copyFileSync(src, join(out, name));
+        }
+        // Olm (used by matrix-js-sdk for SAS etc.) fetches olm.wasm relative to the script URL.
+        // Copy it to dist so chrome-extension://id/olm.wasm returns the real WASM, not HTML.
+        const olmWasmPaths = [
+          join(process.cwd(), "..", "packages", "core", "node_modules", "@matrix-org", "olm", "olm.wasm"),
+          join(process.cwd(), "node_modules", "@matrix-org", "olm", "olm.wasm"),
+        ];
+        for (const src of olmWasmPaths) {
+          if (existsSync(src)) {
+            copyFileSync(src, join(out, "olm.wasm"));
+            break;
+          }
         }
       },
     },
