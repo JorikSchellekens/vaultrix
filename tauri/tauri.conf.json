@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Vaultrix Vault",
+  "version": "0.1.0",
+  "identifier": "com.vaultrix.vault",
+  "build": {
+    "beforeDevCommand": "cd ../packages/ui && npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "cd ../packages/core && npm run build && cd ../packages/ui && npm run build",
+    "frontendDist": "../packages/ui/dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Vaultrix Vault",
+        "width": 800,
+        "height": 600,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [],
+    "resources": [],
+    "externalBin": [],
+    "copyright": "",
+    "category": "Productivity",
+    "shortDescription": "Matrix-based password manager",
+    "longDescription": "Password manager using Matrix as E2EE sync."
+  },
+  "plugins": {}
+}

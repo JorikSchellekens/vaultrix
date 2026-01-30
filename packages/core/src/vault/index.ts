@@ -1,0 +1,12 @@
+export * from "./types.js";
+export * from "./crypto.js";
+export * from "./model.js";
+export * from "./localStore.js";
+export * from "./syncLog.js";
+export * from "./snapshots.js";
+export { unlockVault, listEntries as sessionListEntries, getEntry as sessionGetEntry } from "./session.js";
+export type { UnlockResult } from "./session.js";
+export * from "./export.js";
+export * from "./rotation.js";
+export * from "./recoveryQr.js";
+export * from "./totp.js";

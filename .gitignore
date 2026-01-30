@@ -1,0 +1,31 @@
+# Dependencies and lockfiles
+node_modules/
+package-lock.json
+
+# Build / runtime outputs
+dist/
+tauri/target/
+tauri/gen/
+tauri/icons/icon.png
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# OS and editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+
+# Logs and caches
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.turbo/
+coverage/

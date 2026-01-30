@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vaultrix Vault</title>
+  </head>
+  <body>
+    <div id="root">
+      <p>Vaultrix Vault</p>
+      <button id="open-options">Open vault</button>
+    </div>
+    <script>
+      document.getElementById("open-options").onclick = () => {
+        chrome.runtime.sendMessage({ type: "getStatus" }, (r) => {
+          if (r && r.locked) chrome.runtime.openOptionsPage();
+          else chrome.runtime.openOptionsPage();
+        });
+      };
+    </script>
+  </body>
+</html>
