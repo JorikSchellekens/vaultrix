@@ -11,9 +11,10 @@ import {
   unlockVault,
 } from "@vaultrix/core";
 import type { MatrixClient, VaultModel } from "@vaultrix/core";
+import type { VaultMeta } from "@vaultrix/core";
 
 interface UnlockScreenProps {
-  onUnlock: (model: VaultModel, K_vault: Uint8Array) => void;
+  onUnlock: (model: VaultModel, K_vault: Uint8Array, client: MatrixClient, meta: VaultMeta) => void;
   onError: (msg: string) => void;
 }
 
@@ -73,7 +74,7 @@ export function UnlockScreen({ onUnlock, onError }: UnlockScreenProps) {
         onError(result.error ?? "Unlock failed");
         return;
       }
-      onUnlock(result.model, result.K_vault);
+      onUnlock(result.model, result.K_vault, client, result.meta);
     } catch (e) {
       onError(e instanceof Error ? e.message : "Login failed");
     } finally {

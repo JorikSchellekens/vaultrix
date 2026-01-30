@@ -12,8 +12,10 @@ import {
 import {
   VAULT_META_ACCOUNT_DATA_KEY,
   VAULT_MASTER_KEY_SECRET_NAME,
+  EVENT_TYPE_VAULT_OP,
 } from "../constants.js";
 import type { VaultMeta } from "./vaultRoom.js";
+import type { VaultOpEventContent } from "../vault/types.js";
 
 export interface LoginCredentials {
   baseUrl: string;
@@ -113,6 +115,24 @@ export async function setVaultMeta(
   meta: VaultMeta
 ): Promise<void> {
   await client.setAccountData(VAULT_META_ACCOUNT_DATA_KEY as keyof import("matrix-js-sdk").AccountDataEvents, meta as unknown as Record<string, unknown>);
+}
+
+/**
+ * Send a vault op event to the vault room. Caller must have built the op content
+ * (e.g. via buildVaultOpContent). Returns the event id.
+ */
+export async function sendVaultOpEvent(
+  client: MatrixClient,
+  roomId: string,
+  content: VaultOpEventContent
+): Promise<string> {
+  // Custom event type and content; SDK types only allow known TimelineEvents
+  const result = await (client.sendEvent as (roomId: string, eventType: string, content: object) => Promise<{ event_id?: string }>)(
+    roomId,
+    EVENT_TYPE_VAULT_OP,
+    content as object
+  );
+  return result.event_id ?? "";
 }
 
 /**

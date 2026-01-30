@@ -19,6 +19,14 @@ export interface CustomField {
   kind?: CustomFieldKind;
 }
 
+/** Attachment (image or file) reference stored on an entry */
+export interface EntryAttachment {
+  id: string;
+  mxc_url?: string;
+  filename?: string;
+  content_type?: string;
+}
+
 /** Login: username, password, url, TOTP/HOTP, recovery codes */
 export interface LoginFields {
   username?: string;
@@ -106,6 +114,7 @@ export interface VaultEntry {
   api_key?: string;
   notes?: string;
   custom_fields: CustomField[];
+  attachments?: EntryAttachment[];
   created_at: number;
   updated_at: number;
 }
